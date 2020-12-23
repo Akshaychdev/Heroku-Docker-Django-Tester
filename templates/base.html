@@ -1,0 +1,29 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+  <!-- Google fonts -->
+  <!-- Custom -->
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+  <title>Core {% block title %}{% endblock %}</title>
+</head>
+
+<body>
+  <!-- Topbar -->
+
+  <!-- Main content -->
+  {% block content %}
+
+  {% endblock %}
+
+  <script src="{% static 'js/script.js' %}"></script>
+</body>
+
+</html>
