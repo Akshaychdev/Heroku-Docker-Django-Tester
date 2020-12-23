@@ -1,15 +1,37 @@
-# Deploying Django Docker images to Heroku
+# Deploying Django Docker images to Heroku <!-- omit in toc -->
 
-Created a sample django project "core", to test and learn django deployment with docker to heroku.
+Created a single page django project with static files, to test and learn django deployment with docker to heroku.
+
+<!-- omit in toc -->
+## Table of contents
+
+- [Configurable environment variables](#configurable-environment-variables)
+- [Granularise the settings](#granularise-the-settings)
+- [Staticfiles for Deployment](#staticfiles-for-deployment)
+  - [Static file management in django](#static-file-management-in-django)
+  - [Serving static files from AWS s3 bucket](#serving-static-files-from-aws-s3-bucket)
+  - [Setting up django to serve static from s3](#setting-up-django-to-serve-static-from-s3)
+- [Creating a deployment ready docker image](#creating-a-deployment-ready-docker-image)
+- [Deploying to Heroku](#deploying-to-heroku)
+  - [Instructions to deploy the app](#instructions-to-deploy-the-app)
+  - [heroku basic commands](#heroku-basic-commands)
+  - [Using environment variables in heroku](#using-environment-variables-in-heroku)
+  - [Using the free heroku postgres addon](#using-the-free-heroku-postgres-addon)
+  - [Static assets management with django and heroku](#static-assets-management-with-django-and-heroku)
+  - [Using whitenoise](#using-whitenoise)
+  - [collectstatic during builds](#collectstatic-during-builds)
+  - [Heroku postgress connection with django](#heroku-postgress-connection-with-django)
+- [Deploying the sample app](#deploying-the-sample-app)
+  - [The env variables](#the-env-variables)
+  - [Create image and push to heroku](#create-image-and-push-to-heroku)
 
 ## Configurable environment variables
 
-=> How create and manage env files with dotenv.
-
-* Environment variable is a variable whose value is set outside the program, not checked into VCS, store sensitive information in this files.
-* Create a `.env` file in the project folder, to store the sensitive information.
-* Move the SECRET_KEY to the `.env` file and use that using `dotenv` or `os.getenv('')`.
-* To set environment variables in heroku, Go to your app dashboard > settings > set your env variables as Config Vars.
+* Environment variables used to store sensitive information, their value is set outside the program in a separate `.env` file, not checked into VCS.
+* Create a `.env` file in the project folder, that stores security keys and passwords.
+* Move the `SECRET_KEY` and other admin configurable values to the `.env` file, and use the [`dotenv`](https://pypi.org/project/python-dotenv/), [`Django-environ`](https://django-environ.readthedocs.io/en/latest/), [`python-decouple`](https://pypi.org/project/python-decouple/)
+* Here using `python-dotenv`, to retrieve the stored value use `os.environ['KEY']`
+* To set environment variables in heroku, Go to your app dashboard > settings > set your env variables as Config Vars or using the CLI(mentioned below detailed).
 
 ## Granularise the settings
 
@@ -78,11 +100,21 @@ Created a sample django project "core", to test and learn django deployment with
 
 ## Staticfiles for Deployment
 
-* The static files(js,css, img), the dev. individual static files stored in the `STATICFILES_DIRS` specified in the settings here it is inside the main project(`core/static`),
+* The static files(js,css, img), the development static files stored in the `STATICFILES_DIRS` specified in the settings, here it is inside the main project(`core/static`),
 * But for deployment all these static files needed to be in one place, that path is defined in the `STATIC_ROOT`, in the settings, here it is `root/static`, but it can also be some remote storage like the AWS s3 buckets.
 * Use the `python manage.py collectstatic`, to collect all static files, including admin static (after done all development), from the `STATICFILES_DIRS` to `STATIC_ROOT`.
 
-## Serving static files from AWS s3 bucket
+### Static file management in django
+
+* `MEDIA_ROOT` is the folder where files uploaded using a FileField will go, `STATIC_ROOT` is the folder where static files will be stored after using `manage.py collectstatic` and `STATICFILES_DIRS` is the list of folders where Django will search for additional static files aside from the `static` folder of each app installed.
+* `STATIC_ROOT` is useless during development, it's only required for deployment.
+While in development, `STATIC_ROOT` does nothing, even don't need to set it. Django looks for static files inside each app's directory (myProject/appName/static) and serves them automatically, done by `manage.py runserver` when `DEBUG=True`.
+* When the project goes live, Most likely the dynamic content served using Django and static files will be served by Nginx. Why? Because Nginx is incredibly efficient and will reduce the workload off Django.This is where `STATIC_ROOT` needed, as Nginx doesn't know anything about the django project and doesn't know where to find static files.
+* So set `STATIC_ROOT = '/some/folder/'` and tell Nginx to look for static files in `/some/folder/`. Then you run `manage.py collectstatic` and Django will copy static files from all the apps you have to `/some/folder/`.
+* Using a temporary solution to serve staticfiles with, [django-helper function](https://docs.djangoproject.com/en/3.1/howto/static-files/#serving-static-files-during-development)
+* For best production methods use [this](https://docs.djangoproject.com/en/3.1/howto/static-files/deployment/).
+
+### Serving static files from AWS s3 bucket
 
 * Log in to the AWS account, look for s3(simple storage service)(services -> storage -> s3),
 * Create a new bucket, bucket name (django-app-203), region, uncheck block all public access, need to serve the static.
@@ -171,10 +203,11 @@ Created a sample django project "core", to test and learn django deployment with
 
 ---
 
-* To the Dockerfile, add the RUN commands for server starting and build the image,
-* Run the image with ports mapped to run it on local, now the app served through gunicorn.
+* Install gunicorn(`pip install gunicorn`)
+* To the Dockerfile, add the `RUN` commands for starting server and building the image,
+* Run the image with temporary ports mapped to run it on local, to test the working through gunicorn.(The development completes here)
 
-   ```sh
+   ```dockerfile
    FROM python:3.8.7-alpine3.12
 
    COPY requirements.txt /app/requirements.txt
@@ -193,28 +226,31 @@ Created a sample django project "core", to test and learn django deployment with
    CMD ["gunicorn", "--bind", ":8000", "--workers", "3", "core.wsgi:application"]
    ```
 
-* To build the image use `docker build -t heroku-tester:v1 .`
+* The port 8000 cannot be exposed on a heroku image.
+* Use a `.dockerignore` to avoid unwanted files from building the image.
+* Build the image using `docker build -t heroku-tester:v1` .
+* Test it locally with `docker run -p 8000:8000 heroku-tester:v1`.(working)
 
 ## Deploying to Heroku
 
 * Use gunicorn to serve the app, django server only meant for development.
-* Install heroku CLI.
-* `docker run -p 8000:8000 heroku-tester:v1`
-* The Dockerfile needs to be changed with the variables and values that are acceptable to heroku,
-* To run the gunicorn server, change the entrypoint command to `CMD gunicorn core.wsgi:application --bind 0.0.0.0:$PORT` (The `$PORT` environment variable is automatically applied by heroku)
+* Install [**heroku CLI**](https://devcenter.heroku.com/articles/heroku-cli).
+* The Dockerfile needs to be modified to remove hardcoded ports, add additional commands,
+* To run the gunicorn server, change the entrypoint command to `CMD gunicorn core.wsgi:application --bind 0.0.0.0:$PORT` (The `$PORT` environment variable is automatically applied by heroku, from the config vars)
 
 ### Instructions to deploy the app
 
-* `docker-compose` and its volumes, is for local testing(Just to help with long running commands and environment variables...etc). It can be used to build images with CI/CD tools, but for heroku normal deployment
-* For deployment to a server, need to set the command for server starting (`CMD`) entry point commands, if needed to test run with django server modify your Dockerfile to run the command to put the django server up adding to the last line: `CMD python3 manage.py runserver 0.0.0.0:$PORT`, the `PORT` is also an environment variable that can be set within heroku.
+* `docker-compose` and its volumes, is for local testing(Just to help with long running commands and environment variables...etc). It can be used to build images with CI/CD tools, but for heroku normal deployment build the image from Dockerfile with server starting entry-point.
+* if needed to test run with django server modify the Dockerfile to run the command to put the django server up adding to the last line: `CMD python3 manage.py runserver 0.0.0.0:$PORT`,
+* The staticfiles needed to be collected before building the image.
 
 ### heroku basic commands
 
 * Log in to heroku: `heroku login`, create an app `heroku create <name>` (if name not given a random name added)
-* Check the container running locally with `docker ps`, login to heroku container registry `heroku container:login`,
+* Check the container running locally with `heroku ps`, login to heroku container registry `heroku container:login`,
 * To push the created image to heroku, use `heroku container:push web`, finally to deploy the changes `heroku container:release web`
 
-* To destroy the old app if needed `heroku apps:destroy old_app` (this will permanently and irrevocably destroy app1)
+* To destroy the old app if needed `heroku apps:destroy old_app` (this will permanently and irrevocably destroy old_app)
 * To view the logs `heroku logs --tail`
 * A `Procfile` in heroku is similar to "Dockerfile"(Used when deploying, through git), it is to explicitly declare what command should be executed to start your app.
 * A `dyno` in heroku is similar to the docker container, use `heroku ps` to show all the *dyno*s running,
@@ -223,13 +259,13 @@ Created a sample django project "core", to test and learn django deployment with
 ### Using environment variables in heroku
 
 * Environment variables denoted as `config vars` in heroku, heroku can store data such as encryption keys or external resource addresses in config vars. At runtime, config vars are exposed as environment variables to the application.
-* To set the config var on Heroku, use `heroku config:set TIMES=2`, To fetch the env variables use `os.environ.get('TIMES',3)`(here 3 is the default.).
+* To set the config var on Heroku, use `heroku config:set TIMES=2`, To fetch the env variables use `os.environ.get('TIMES',3)`(here 3 is the default.), also `os.environ["TIMES"]` can be used.
 * View all the config vars that are set, use `heroku config`,
 
 ### Using the free heroku postgres addon
 
-* Heroku Postgres add-on automatically provisioned when your app was deployed and it is free, A database is an add-on, use the addons command in the CLI, to find all addons existing, `heroku addons`
-* the `config vars` for your app will display the URL that your app is using to connect to the database, DATABASE_URL:
+* Heroku Postgres add-on automatically provisioned when the app was deployed and it is free, A database is an add-on, use the addons command in the CLI, to find all addons existing, `heroku addons`
+* the `heroku config` for your app will display the URL that your app is using to connect to the database, DATABASE_URL:
 
   ```console
   $ heroku config
@@ -241,7 +277,7 @@ Created a sample django project "core", to test and learn django deployment with
 * Configure the settings to use the pg database in django then run `heroku run python manage.py migrate`, to create tables.
 * Use the `heroku pg:psql`, to connect to remote database and see all the tables.
 
-## Static assets management with django and heroku
+### Static assets management with django and heroku
 
 * Heroku recommended static files settings,
 
@@ -257,7 +293,7 @@ Created a sample django project "core", to test and learn django deployment with
   ```
 
 * Need to create the `STATIC_ROOT` folder and run the `collectstatic`, locally before deploying,(cz git doesn't adds empty folders)
-* run `collectstatic` inside Dockerfile to create that directory at the build
+* run `collectstatic` inside Dockerfile to create that directory at the build time.
 
 ### Using whitenoise
 
@@ -283,11 +319,11 @@ Created a sample django project "core", to test and learn django deployment with
 
 ### collectstatic during builds
 
-* When a Django application is deployed to Heroku, `$ python manage.py collectstatic --noinput` is run automatically during the build. A build will fail if the collectstatic step is not successful.
+* When a Django application is deployed to Heroku, `$ python manage.py collectstatic --noinput` is run automatically during the build. A build will fail if the collectstatic step is not successful, the target static folder must be present.
 * For debugging that use, `heroku config:set DEBUG_COLLECTSTATIC=1`
 * To disable collectstatic, `heroku config:set DISABLE_COLLECTSTATIC=1`
 
-## Heroku postgress connection with django
+### Heroku postgress connection with django
 
 * Install the `dj-database-url` package using `pip`. (`pip install dj-database-url`)
 * Also be sure that `psycopg2` is installed (`pip install psycopg2` or `psycopg2-binary`)

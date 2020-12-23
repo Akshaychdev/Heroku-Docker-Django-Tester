@@ -1,5 +1,3 @@
-devEnv
-
 ### Django ###
 *.log
 *.pot
@@ -148,4 +146,4 @@ dmypy.json
 # profiling data
 .prof
 devEnv
-/static/
+/staticfiles/
