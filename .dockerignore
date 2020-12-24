@@ -4,6 +4,7 @@ readme.md
 LICENSE
 
 ### Django ###
+*.env
 *.log
 *.pot
 *.pyc

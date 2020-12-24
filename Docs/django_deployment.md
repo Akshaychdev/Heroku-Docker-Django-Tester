@@ -23,6 +23,7 @@ Created a single page django project with static files, to test and learn django
   - [Heroku postgress connection with django](#heroku-postgress-connection-with-django)
 - [Deploying the sample app](#deploying-the-sample-app)
   - [The env variables](#the-env-variables)
+  - [psycopg2 dependencies](#psycopg2-dependencies)
   - [Create image and push to heroku](#create-image-and-push-to-heroku)
 
 ## Configurable environment variables
@@ -111,8 +112,6 @@ Created a single page django project with static files, to test and learn django
 While in development, `STATIC_ROOT` does nothing, even don't need to set it. Django looks for static files inside each app's directory (myProject/appName/static) and serves them automatically, done by `manage.py runserver` when `DEBUG=True`.
 * When the project goes live, Most likely the dynamic content served using Django and static files will be served by Nginx. Why? Because Nginx is incredibly efficient and will reduce the workload off Django.This is where `STATIC_ROOT` needed, as Nginx doesn't know anything about the django project and doesn't know where to find static files.
 * So set `STATIC_ROOT = '/some/folder/'` and tell Nginx to look for static files in `/some/folder/`. Then you run `manage.py collectstatic` and Django will copy static files from all the apps you have to `/some/folder/`.
-* Using a temporary solution to serve staticfiles with, [django-helper function](https://docs.djangoproject.com/en/3.1/howto/static-files/#serving-static-files-during-development)
-* For best production methods use [this](https://docs.djangoproject.com/en/3.1/howto/static-files/deployment/).
 
 ### Serving static files from AWS s3 bucket
 
@@ -230,6 +229,8 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
 * Use a `.dockerignore` to avoid unwanted files from building the image.
 * Build the image using `docker build -t heroku-tester:v1` .
 * Test it locally with `docker run -p 8000:8000 heroku-tester:v1`.(working)
+* Using a temporary solution to serve staticfiles with the [django-helper function](https://docs.djangoproject.com/en/3.1/howto/static-files/#serving-static-files-during-development)
+* For best production methods refer [this](https://docs.djangoproject.com/en/3.1/howto/static-files/deployment/).
 
 ## Deploying to Heroku
 
@@ -246,12 +247,14 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
 
 ### heroku basic commands
 
+* View the full list of [commands](https://devcenter.heroku.com/articles/heroku-cli-commands).
 * Log in to heroku: `heroku login`, create an app `heroku create <name>` (if name not given a random name added)
 * Check the container running locally with `heroku ps`, login to heroku container registry `heroku container:login`,
+* To list all the apps `heroku apps`
 * To push the created image to heroku, use `heroku container:push web`, finally to deploy the changes `heroku container:release web`
 
 * To destroy the old app if needed `heroku apps:destroy old_app` (this will permanently and irrevocably destroy old_app)
-* To view the logs `heroku logs --tail`
+* To view the logs `heroku logs --tail` (`heroku logs --tail -a heroku-tester-v1`)
 * A `Procfile` in heroku is similar to "Dockerfile"(Used when deploying, through git), it is to explicitly declare what command should be executed to start your app.
 * A `dyno` in heroku is similar to the docker container, use `heroku ps` to show all the *dyno*s running,
 * And a `stack` is the heroku version of images,
@@ -299,6 +302,7 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
 
 * Django does not support serving static files in production. However, the WhiteNoise project can integrate into Django application and can serve static files.
 * Whitenoise [documentation](http://whitenoise.evans.io/en/stable/).
+* Using [Whitenoise on django](http://whitenoise.evans.io/en/stable/django.html).
 * Install whitenoise(`pip install whitenoise`), install WhiteNoise into the Django application, in settings.py‘s middleware section(at top):
 
   ```python
@@ -347,18 +351,31 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
 * Also the secret keys(config vars) can also be added with Heroku dashboard, click on the app, go to apps settings, from the "Config Vars" section -> "Reveal Vars" or "Add Vars" and add the SECRET_KEY there.
 * No need to change the settings the `os.environ["KEY"]` can fetch the values from heroku ecosystem too.
 
+### psycopg2 dependencies
+
+* To use the package built from sources, use python -m pip install psycopg2. That process will require several dependencies ([documentation](http://initd.org/psycopg/docs/install.html#install-from-source))
+
+* Also use this [stackoverflow link](https://stackoverflow.com/a/58984045/12167598).
+* To build `Psycopg`, need the packages `gcc musl-dev postgresql-dev`. Also need that `pg_config` executable: while simply installing `postgresql-dev` will work, `postgresql-libs` does fine too and takes up some 12 MB less space.
+
 ### Create image and push to heroku
 
 * Delete the old local image,
 * The `Dockerfile` for heroku deployment image,
+* Modified the settings remove the dotenv modules,(as env files served from heroku), added whitenoise and postgres addon
 
   ```Dockerfile
-  # RUN pip install -r /requirements.txt
-  # RUN apk del .tmp-build-deps
+  FROM python:3.8.7-alpine3.12
+
+  COPY requirements.txt /app/requirements.txt
 
   RUN set -ex \
     && pip install --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
+    && apk add --update --no-cache postgresql-libs \
+    && apk add --update --no-cache --virtual .tmp-build-deps \
+    gcc musl-dev postgresql-dev \
+    && pip install --no-cache-dir -r /app/requirements.txt \
+    && apk --purge del .tmp-build-deps
 
   # Working directory
   WORKDIR /app
@@ -368,7 +385,7 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
   CMD gunicorn core.wsgi:application --bind 0.0.0.0:$PORT
   ```
 
-* To create image from the docker file run `heroku create`,
+* To create new application use `heroku create`,( using the old app - heroku-tester-v1)
 * To push the image to the heroku container, (check login using, `heroku container:login`),
 
   ```shell
@@ -381,7 +398,7 @@ While in development, `STATIC_ROOT` does nothing, even don't need to set it. Dja
 * And finally a `release` will make it public,
 
   ```shell
-  heroku container:release web -a heroku-tester-v1 web
+  heroku container:release web -a heroku-tester-v1
   ```
 
 * Check out the logs using `heroku logs`.

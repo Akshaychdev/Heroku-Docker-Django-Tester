@@ -13,13 +13,15 @@ COPY requirements.txt /app/requirements.txt
 
 RUN set -ex \
   && pip install --upgrade pip \
-  && pip install --no-cache-dir -r /app/requirements.txt
+  && apk add --update --no-cache postgresql-libs \
+  && apk add --update --no-cache --virtual .tmp-build-deps \
+  gcc musl-dev postgresql-dev \
+  && pip install --no-cache-dir -r /app/requirements.txt \
+  && apk --purge del .tmp-build-deps
 
 # Working directory
 WORKDIR /app
 
 COPY . .
 
-EXPOSE 8000
-
-CMD ["gunicorn", "--bind", ":8000", "--workers", "3", "core.wsgi:application"]
+CMD gunicorn core.wsgi:application --bind 0.0.0.0:$PORT

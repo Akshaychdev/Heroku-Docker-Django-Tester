@@ -147,3 +147,4 @@ dmypy.json
 .prof
 devEnv
 /staticfiles/
+.vscode/settings.json
